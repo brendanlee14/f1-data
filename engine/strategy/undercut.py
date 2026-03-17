@@ -18,10 +18,13 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Any
 
+from .utils import build_position_index
+
 GAP_THRESHOLD_SEC = 3.5    # max gap to consider a battle
 UNDERCUT_WINDOW = 3        # laps after B's pit to measure pace advantage
 MIN_PACE_ADVANTAGE = 0.15  # sec/lap advantage B must have to count
 DRS_WINDOW_SEC = 1.0       # gap within which DRS is relevant post-jump
+MAX_POSITION_GAP = 3       # only consider drivers within this many positions
 
 
 def _cumulative_gap(race_df: pd.DataFrame, lap: int, driver_a: str, driver_b: str) -> float:
@@ -43,6 +46,8 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
     pit_laps: Dict[str, List[int]] = {}
     for driver, df in race_df.groupby("driver"):
         pit_laps[driver] = df[df["pit_this_lap"]]["lap"].tolist()
+
+    positions = build_position_index(race_df)
 
     for i, driver_a in enumerate(drivers):
         for driver_b in drivers[i + 1 :]:
@@ -77,6 +82,16 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                 continue  # not in a battle
             if gap_before < 0:
                 continue  # B is already ahead — not an undercut scenario
+
+            # Position filter: only flag drivers actually racing each other
+            lap_positions = positions.get(check_lap, {})
+            pos_a = lap_positions.get(driver_a)
+            pos_b = lap_positions.get(driver_b)
+            if pos_a is None or pos_b is None:
+                continue
+            position_gap = abs(pos_a - pos_b)
+            if position_gap > MAX_POSITION_GAP:
+                continue
 
             # Measure B's pace advantage on fresh tyres vs A's degrading laps.
             # Exclude any lap where a driver is doing their pit stop (lap_time inflated).
@@ -130,6 +145,9 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                     "gap_after_sec": round(gap_after, 3),
                     "pace_advantage_sec_per_lap": round(pace_adv, 3),
                     "undercut_succeeded": undercut_succeeded,
+                    "position_a": pos_a,
+                    "position_b": pos_b,
+                    "position_gap": position_gap,
                 },
             })
 

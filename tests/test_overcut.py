@@ -4,13 +4,14 @@ import pandas as pd
 import pytest
 
 from engine.strategy import overcut
-from engine.strategy.overcut import GAP_THRESHOLD_SEC, MIN_STAY_OUT_LAPS
+from engine.strategy.overcut import GAP_THRESHOLD_SEC, MIN_STAY_OUT_LAPS, MAX_POSITION_GAP
 
 REQUIRED_KEYS = {"insight_type", "driver", "lap", "rank_score", "summary", "detail"}
 DETAIL_KEYS = {
     "target_driver", "overcut_driver_pit_lap", "target_driver_pit_lap",
     "laps_stayed_out", "gap_before_sec", "gap_after_sec", "gap_gained_sec",
     "avg_pace_delta_vs_fresh_sec", "tyre_age_at_pit", "overcut_succeeded",
+    "position_a", "position_b", "position_gap",
 }
 
 
@@ -228,3 +229,68 @@ class TestOvercutEdgeCases:
 
     def test_returns_list(self, melbourne_df):
         assert isinstance(overcut.detect(melbourne_df), list)
+
+
+# ---------------------------------------------------------------------------
+# Position filter
+# ---------------------------------------------------------------------------
+
+def _add_filler_drivers(df: pd.DataFrame, n: int, spacing: float = 0.4) -> pd.DataFrame:
+    """
+    Insert n filler drivers between AAA and BBB in cumulative time.
+
+    Each filler has the same lap times as AAA but with a cumulative offset of
+    k * spacing, placing them P2..P(n+1) between AAA (P1) and BBB (P=n+2).
+    Filler drivers have no pit stops so they're skipped in the pair loop.
+    """
+    aaa = df[df["driver"] == "AAA"].copy().sort_values("lap").reset_index(drop=True)
+    fillers = []
+    for k in range(1, n + 1):
+        filler = aaa.copy()
+        filler["driver"] = f"F{k:02d}"
+        filler["cumulative_time"] = (filler["cumulative_time"] + k * spacing).round(3)
+        filler["pit_this_lap"] = False
+        filler["stint_number"] = 1
+        fillers.append(filler)
+    return pd.concat([df] + fillers, ignore_index=True)
+
+
+class TestOvercutPositionFilter:
+    def test_blocks_pair_outside_position_gap(self):
+        """Pair within time gap but separated by > MAX_POSITION_GAP positions is suppressed."""
+        df = _make_overcut_scenario(stay_out=5, gap_before=2.5)
+        df_with_fillers = _add_filler_drivers(df, n=MAX_POSITION_GAP)
+        insights = overcut.detect(df_with_fillers)
+        assert len(insights) == 0, "Should be blocked: position gap exceeds MAX_POSITION_GAP"
+
+    def test_allows_pair_at_position_gap_boundary(self):
+        """Pair separated by exactly MAX_POSITION_GAP positions should still fire."""
+        df = _make_overcut_scenario(stay_out=5, gap_before=2.5)
+        df_with_fillers = _add_filler_drivers(df, n=MAX_POSITION_GAP - 1)
+        insights = overcut.detect(df_with_fillers)
+        assert len(insights) == 1, "Should fire: position gap equals MAX_POSITION_GAP"
+
+    def test_position_fields_in_detail(self):
+        """position_a, position_b, position_gap must be present in detail."""
+        df = _make_overcut_scenario(stay_out=5, gap_before=2.5)
+        insights = overcut.detect(df)
+        assert len(insights) == 1
+        detail = insights[0]["detail"]
+        assert "position_a" in detail
+        assert "position_b" in detail
+        assert "position_gap" in detail
+
+    def test_position_gap_value_is_correct(self):
+        """With 1 filler driver, AAA=P1, filler=P2, BBB=P3 → position_gap=2."""
+        df = _make_overcut_scenario(stay_out=5, gap_before=2.5)
+        df_with_filler = _add_filler_drivers(df, n=1)
+        insights = overcut.detect(df_with_filler)
+        assert len(insights) == 1
+        assert insights[0]["detail"]["position_gap"] == 2
+
+    def test_position_gap_without_fillers_is_one(self):
+        """In a pure 2-driver scenario, the two drivers are always P1 and P2."""
+        df = _make_overcut_scenario(stay_out=5, gap_before=2.5)
+        insights = overcut.detect(df)
+        assert len(insights) == 1
+        assert insights[0]["detail"]["position_gap"] == 1

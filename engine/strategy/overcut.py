@@ -17,10 +17,13 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Any
 
+from .utils import build_position_index
+
 GAP_THRESHOLD_SEC = 4.0     # max gap before B's pit to consider a battle
 OVERCUT_WINDOW = 3          # laps to measure A's pace after B pits
 CLEAN_AIR_BENEFIT = 0.20    # assumed sec/lap from clean air (used in scoring)
 MIN_STAY_OUT_LAPS = 2       # A must stay out at least this many laps after B pits
+MAX_POSITION_GAP = 3        # only consider drivers within this many positions
 
 
 def _cumulative_gap(race_df: pd.DataFrame, lap: int, driver_a: str, driver_b: str) -> float:
@@ -46,6 +49,8 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
     pit_laps: Dict[str, List[int]] = {}
     for driver, df in race_df.groupby("driver"):
         pit_laps[driver] = df[df["pit_this_lap"]]["lap"].tolist()
+
+    positions = build_position_index(race_df)
 
     for i, _da in enumerate(drivers):
         for _db in drivers[i + 1:]:
@@ -82,6 +87,16 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                 continue  # A is behind — overcut not relevant
             if gap_before > GAP_THRESHOLD_SEC:
                 continue  # too far apart
+
+            # Position filter: only flag drivers actually racing each other
+            lap_positions = positions.get(check_lap, {})
+            pos_a = lap_positions.get(driver_a)
+            pos_b = lap_positions.get(driver_b)
+            if pos_a is None or pos_b is None:
+                continue
+            position_gap = abs(pos_a - pos_b)
+            if position_gap > MAX_POSITION_GAP:
+                continue
 
             # Measure A's pace while B is on fresh tyres (between pit_b and pit_a)
             measure_start = pit_b + 1
@@ -149,6 +164,9 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                     "avg_pace_delta_vs_fresh_sec": round(pace_delta, 3),
                     "tyre_age_at_pit": tyre_age,
                     "overcut_succeeded": overcut_succeeded,
+                    "position_a": pos_a,
+                    "position_b": pos_b,
+                    "position_gap": position_gap,
                 },
             })
 
