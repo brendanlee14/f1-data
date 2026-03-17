@@ -47,7 +47,10 @@ def _rng():
 # ---------------------------------------------------------------------------
 
 REQUIRED_KEYS = {"insight_type", "driver", "lap", "rank_score", "summary", "detail"}
-DETAIL_KEYS = {"compound", "tyre_age", "stint_number", "deg_slope_sec_per_lap", "window_laps"}
+DETAIL_KEYS = {
+    "compound", "tyre_age", "stint_number", "deg_slope_sec_per_lap",
+    "window_laps", "window_lap_numbers", "window_lap_times",
+}
 
 
 def _assert_schema(insight: dict):
@@ -165,6 +168,32 @@ class TestTyreDegSchema:
         insights = tyre_deg.detect(melbourne_df)
         for ins in insights:
             assert ins["detail"]["compound"] in {"SOFT", "MEDIUM", "HARD"}
+
+    def test_detail_window_lap_times_length_and_type(self, melbourne_df):
+        """window_lap_times must have exactly WINDOW entries of floats."""
+        insights = tyre_deg.detect(melbourne_df)
+        for ins in insights:
+            times = ins["detail"]["window_lap_times"]
+            numbers = ins["detail"]["window_lap_numbers"]
+            assert len(times) == WINDOW, f"Expected {WINDOW} lap times, got {len(times)}"
+            assert len(numbers) == WINDOW
+            assert all(isinstance(t, float) for t in times)
+            assert all(isinstance(n, int) for n in numbers)
+
+    def test_detail_window_lap_times_are_degrading(self):
+        """For a clearly degrading stint, window_lap_times should increase."""
+        times = _degrading_lap_times(30, slope=0.25)
+        df = _single_stint_df("VER", times)
+        insights = tyre_deg.detect(df)
+        assert len(insights) == 1
+        wt = insights[0]["detail"]["window_lap_times"]
+        assert wt[-1] > wt[0], "Last lap in window should be slower than first"
+
+    def test_detail_window_lap_numbers_match_lap_field(self, melbourne_df):
+        """The last entry of window_lap_numbers should equal the insight's lap."""
+        insights = tyre_deg.detect(melbourne_df)
+        for ins in insights:
+            assert ins["detail"]["window_lap_numbers"][-1] == ins["lap"]
 
 
 # ---------------------------------------------------------------------------

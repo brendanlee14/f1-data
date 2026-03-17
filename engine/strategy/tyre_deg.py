@@ -59,6 +59,11 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                     tyre_age = int(stint_df["tyre_age"].iloc[i + WINDOW - 1])
                     rank_score = round(min(1.0, s / SLOPE_MAX), 3)
 
+                    window_lap_numbers = [
+                        int(stint_df["lap"].iloc[j]) for j in range(i, i + WINDOW)
+                    ]
+                    window_lap_times = [round(float(t), 3) for t in window_times]
+
                     insights.append({
                         "insight_type": "tyre_degradation",
                         "driver": driver,
@@ -74,6 +79,8 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                             "stint_number": int(stint_num),
                             "deg_slope_sec_per_lap": round(s, 4),
                             "window_laps": WINDOW,
+                            "window_lap_numbers": window_lap_numbers,
+                            "window_lap_times": window_lap_times,
                         },
                     })
                     break  # one insight per stint is sufficient
