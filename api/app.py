@@ -19,7 +19,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import os
+
 from engine.strategy import StrategyAnalyser
+from engine.strategy.fastf1_loader import load_fastf1_race
 from engine.strategy.output import _build_envelope, SCHEMA_VERSION
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -39,9 +42,18 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # ---------------------------------------------------------------------------
 
 _analyser = StrategyAnalyser()
-_race_df = _analyser.load_race()
+
+_F1_YEAR = os.getenv("F1_YEAR")
+_F1_GP   = os.getenv("F1_GP")
+
+if _F1_YEAR and _F1_GP:
+    _race_df   = load_fastf1_race(int(_F1_YEAR), _F1_GP)
+    RACE_LABEL = f"{_F1_GP} {_F1_YEAR}"
+else:
+    _race_df   = _analyser.load_race()
+    RACE_LABEL = "Melbourne 2026 (synthetic)"
+
 _all_insights: List[Dict[str, Any]] = _analyser.run(_race_df, min_rank_score=0.0)
-RACE_LABEL = "Melbourne 2026"
 
 
 # ---------------------------------------------------------------------------
