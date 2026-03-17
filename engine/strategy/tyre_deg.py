@@ -72,6 +72,26 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                     ]
                     window_lap_times = [round(float(t), 3) for t in window_times]
 
+                    # Full stint view — all laps including flagged ones.
+                    # Classify each lap by how far it sits above the stint median:
+                    #   > 25 s → Safety Car   > 10 s → VSC   otherwise → clean
+                    window_set = set(window_lap_numbers)
+                    stint_laps = []
+                    for _, slap in stint_df.iterrows():
+                        t = float(slap["lap_time"])
+                        excess = t - median_lap
+                        flag = (
+                            "SC"  if excess > 25 else
+                            "VSC" if excess > 10 else
+                            None
+                        )
+                        stint_laps.append({
+                            "lap":       int(slap["lap"]),
+                            "time":      round(t, 3),
+                            "flag":      flag,
+                            "in_window": int(slap["lap"]) in window_set,
+                        })
+
                     insights.append({
                         "insight_type": "tyre_degradation",
                         "driver": driver,
@@ -89,6 +109,7 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
                             "window_laps": WINDOW,
                             "window_lap_numbers": window_lap_numbers,
                             "window_lap_times": window_lap_times,
+                            "stint_laps": stint_laps,
                         },
                     })
                     break  # one insight per stint is sufficient

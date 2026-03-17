@@ -270,6 +270,20 @@
     .lap-times-table .td-lap { color: var(--text-dim); }
     .lap-times-table .td-time { font-weight: 600; color: var(--text); }
     .lap-times-table .td-delta { text-align: right; font-size: 11px; }
+    .lap-times-table tr.in-window { background: rgba(139,92,246,0.10); }
+    .lap-times-table tr.in-window .td-lap { color: var(--purple); font-weight: 600; }
+    .flag-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      border-radius: 3px;
+      padding: 1px 5px;
+      vertical-align: middle;
+      margin-left: 4px;
+    }
+    .flag-badge.sc  { background: rgba(225,6,0,.25);  color: #ff6b6b; border: 1px solid rgba(225,6,0,.4); }
+    .flag-badge.vsc { background: rgba(245,158,11,.2); color: var(--amber); border: 1px solid rgba(245,158,11,.4); }
 
     /* Status badge */
     .status-badge {
@@ -495,32 +509,54 @@
 
     // Per-lap expansion for tyre degradation
     let lapExpandHtml = '';
-    if (ins.insight_type === 'tyre_degradation' && d.window_lap_times?.length) {
+    if (ins.insight_type === 'tyre_degradation' && d.stint_laps?.length) {
       const uid = `lt-${ins.driver}-${ins.lap}-${d.stint_number}`;
-      const rows = d.window_lap_numbers.map((lap, idx) => {
-        const t = d.window_lap_times[idx];
-        const prev = idx > 0 ? d.window_lap_times[idx - 1] : null;
-        const delta = prev !== null ? (t - prev) : null;
-        const deltaStr = delta !== null
-          ? `<span style="color:${delta > 0 ? 'var(--red)' : 'var(--green)'}">
-               ${delta > 0 ? '+' : ''}${delta.toFixed(3)}s
-             </span>`
-          : '<span style="color:var(--muted)">—</span>';
-        return `<tr>
+      const flaggedCount = d.stint_laps.filter(l => l.flag).length;
+      const label = flaggedCount
+        ? `Stint laps <span style="color:var(--muted);font-weight:400">(${flaggedCount} flagged)</span>`
+        : 'Stint laps';
+
+      let prevCleanTime = null;
+      const rows = d.stint_laps.map(entry => {
+        const { lap, time, flag, in_window } = entry;
+        const rowClass = in_window ? 'in-window' : '';
+
+        const flagBadge = flag === 'SC'
+          ? '<span class="flag-badge sc">SC</span>'
+          : flag === 'VSC'
+          ? '<span class="flag-badge vsc">VSC</span>'
+          : '';
+
+        // Delta vs previous clean (non-flagged) lap
+        let deltaStr = '<span style="color:var(--muted)">—</span>';
+        if (!flag && prevCleanTime !== null) {
+          const delta = time - prevCleanTime;
+          deltaStr = `<span style="color:${delta > 0 ? 'var(--red)' : 'var(--green)'}">
+            ${delta > 0 ? '+' : ''}${delta.toFixed(3)}s</span>`;
+        }
+        if (!flag) prevCleanTime = time;
+
+        const timeCell = flag
+          ? `<span style="color:var(--muted)">${time.toFixed(3)}s</span>${flagBadge}`
+          : `${time.toFixed(3)}s`;
+
+        return `<tr class="${rowClass}">
           <td class="td-lap">Lap ${lap}</td>
-          <td class="td-time">${t.toFixed(3)}s</td>
-          <td class="td-delta">${deltaStr}</td>
+          <td class="td-time">${timeCell}</td>
+          <td class="td-delta">${flag ? '' : deltaStr}</td>
         </tr>`;
       }).join('');
 
       lapExpandHtml = `
         <button class="lap-expand-btn" onclick="toggleLapTimes('${uid}', this)">
-          <span class="chevron">▶</span> Per-lap times
+          <span class="chevron">▶</span> ${label}
         </button>
-        <table class="lap-times-table" id="${uid}">
-          <thead><tr><th>Lap</th><th>Time</th><th style="text-align:right">Δ prev</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
+        <div class="lap-times-wrap" id="${uid}" style="display:none;max-height:220px;overflow-y:auto;margin-top:6px;border-radius:6px;border:1px solid var(--border)">
+          <table class="lap-times-table visible" style="margin-top:0">
+            <thead><tr><th>Lap</th><th>Time</th><th style="text-align:right">Δ prev</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
     }
 
     return `<div class="detail-grid">${gridHtml}</div>${statusHtml}${lapExpandHtml}`;
@@ -550,8 +586,9 @@
   });
 
   function toggleLapTimes(uid, btn) {
-    const table = document.getElementById(uid);
-    const open = table.classList.toggle('visible');
+    const wrap = document.getElementById(uid);
+    const open = wrap.style.display === 'none';
+    wrap.style.display = open ? '' : 'none';
     btn.classList.toggle('open', open);
   }
 

@@ -49,7 +49,7 @@ def _rng():
 REQUIRED_KEYS = {"insight_type", "driver", "lap", "rank_score", "summary", "detail"}
 DETAIL_KEYS = {
     "compound", "tyre_age", "stint_number", "deg_slope_sec_per_lap",
-    "window_laps", "window_lap_numbers", "window_lap_times",
+    "window_laps", "window_lap_numbers", "window_lap_times", "stint_laps",
 }
 
 
@@ -194,6 +194,40 @@ class TestTyreDegSchema:
         insights = tyre_deg.detect(melbourne_df)
         for ins in insights:
             assert ins["detail"]["window_lap_numbers"][-1] == ins["lap"]
+
+    def test_stint_laps_structure(self, melbourne_df):
+        """stint_laps must contain all stint laps with required keys and valid flag values."""
+        insights = tyre_deg.detect(melbourne_df)
+        valid_flags = {None, "SC", "VSC"}
+        for ins in insights:
+            sl = ins["detail"]["stint_laps"]
+            assert isinstance(sl, list) and len(sl) > 0
+            for entry in sl:
+                assert {"lap", "time", "flag", "in_window"} == entry.keys()
+                assert isinstance(entry["lap"], int)
+                assert isinstance(entry["time"], float)
+                assert entry["flag"] in valid_flags
+                assert isinstance(entry["in_window"], bool)
+
+    def test_stint_laps_window_coverage(self, melbourne_df):
+        """Laps marked in_window must exactly match window_lap_numbers."""
+        insights = tyre_deg.detect(melbourne_df)
+        for ins in insights:
+            d = ins["detail"]
+            in_window_laps = {e["lap"] for e in d["stint_laps"] if e["in_window"]}
+            assert in_window_laps == set(d["window_lap_numbers"])
+
+    def test_stint_laps_sc_flags_injected(self):
+        """SC laps (>25s above median) must be tagged with flag='SC'."""
+        times = _degrading_lap_times(30, slope=0.25)
+        # Inject a safety-car lap in the middle
+        times[5] = times[5] + 40.0
+        df = _single_stint_df("VER", times)
+        insights = tyre_deg.detect(df)
+        assert len(insights) == 1
+        sc_entries = [e for e in insights[0]["detail"]["stint_laps"] if e["flag"] == "SC"]
+        assert len(sc_entries) == 1
+        assert sc_entries[0]["lap"] == 6  # 1-indexed lap
 
 
 # ---------------------------------------------------------------------------
