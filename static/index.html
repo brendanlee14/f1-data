@@ -224,6 +224,53 @@
     .detail-key   { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .detail-value { font-size: 13px; font-weight: 600; }
 
+    /* Lap times expansion */
+    .lap-expand-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.4px;
+      width: 100%;
+      text-align: left;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .lap-expand-btn:hover { border-color: var(--purple); color: var(--purple); }
+    .lap-expand-btn .chevron { display: inline-block; transition: transform 0.2s; margin-right: 4px; }
+    .lap-expand-btn.open .chevron { transform: rotate(90deg); }
+
+    .lap-times-table {
+      display: none;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .lap-times-table.visible { display: table; }
+    .lap-times-table th {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      padding: 3px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .lap-times-table td {
+      padding: 4px 8px;
+      border-bottom: 1px solid rgba(42,42,56,0.5);
+      font-variant-numeric: tabular-nums;
+    }
+    .lap-times-table tr:last-child td { border-bottom: none; }
+    .lap-times-table .td-lap { color: var(--text-dim); }
+    .lap-times-table .td-time { font-weight: 600; color: var(--text); }
+    .lap-times-table .td-delta { text-align: right; font-size: 11px; }
+
     /* Status badge */
     .status-badge {
       display: inline-flex;
@@ -446,7 +493,37 @@
         })()
       : '';
 
-    return `<div class="detail-grid">${gridHtml}</div>${statusHtml}`;
+    // Per-lap expansion for tyre degradation
+    let lapExpandHtml = '';
+    if (ins.insight_type === 'tyre_degradation' && d.window_lap_times?.length) {
+      const uid = `lt-${ins.driver}-${ins.lap}-${d.stint_number}`;
+      const rows = d.window_lap_numbers.map((lap, idx) => {
+        const t = d.window_lap_times[idx];
+        const prev = idx > 0 ? d.window_lap_times[idx - 1] : null;
+        const delta = prev !== null ? (t - prev) : null;
+        const deltaStr = delta !== null
+          ? `<span style="color:${delta > 0 ? 'var(--red)' : 'var(--green)'}">
+               ${delta > 0 ? '+' : ''}${delta.toFixed(3)}s
+             </span>`
+          : '<span style="color:var(--muted)">—</span>';
+        return `<tr>
+          <td class="td-lap">Lap ${lap}</td>
+          <td class="td-time">${t.toFixed(3)}s</td>
+          <td class="td-delta">${deltaStr}</td>
+        </tr>`;
+      }).join('');
+
+      lapExpandHtml = `
+        <button class="lap-expand-btn" onclick="toggleLapTimes('${uid}', this)">
+          <span class="chevron">▶</span> Per-lap times
+        </button>
+        <table class="lap-times-table" id="${uid}">
+          <thead><tr><th>Lap</th><th>Time</th><th style="text-align:right">Δ prev</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    return `<div class="detail-grid">${gridHtml}</div>${statusHtml}${lapExpandHtml}`;
   }
 
   // ── Event listeners ────────────────────────────────────────────────────────
@@ -471,6 +548,12 @@
     document.getElementById('sliderVal').textContent = minRank.toFixed(2);
     render();
   });
+
+  function toggleLapTimes(uid, btn) {
+    const table = document.getElementById(uid);
+    const open = table.classList.toggle('visible');
+    btn.classList.toggle('open', open);
+  }
 
   loadInsights();
 </script>
