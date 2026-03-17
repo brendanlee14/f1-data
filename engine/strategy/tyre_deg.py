@@ -45,22 +45,30 @@ def detect(race_df: pd.DataFrame) -> List[Dict[str, Any]]:
             if len(stint_df) < MIN_STINT_LAPS + WINDOW:
                 continue
 
-            times = stint_df["lap_time"].values
+            # Strip anomalous laps (safety car, VSC, incidents) before analysis.
+            # Any lap more than 10 s above the stint median is treated as non-representative.
+            median_lap = float(np.median(stint_df["lap_time"].values))
+            clean_df = stint_df[stint_df["lap_time"] <= median_lap + 10.0].reset_index(drop=True)
+
+            if len(clean_df) < MIN_STINT_LAPS + WINDOW:
+                continue
+
+            times = clean_df["lap_time"].values
             # Exclude the pit lap itself (first lap of stint has pit loss added)
-            start_idx = 1 if stint_df["pit_this_lap"].iloc[0] else 0
+            start_idx = 1 if clean_df["pit_this_lap"].iloc[0] else 0
 
             for i in range(start_idx + MIN_STINT_LAPS, len(times) - WINDOW + 1):
                 window_times = times[i : i + WINDOW]
                 s = _slope(window_times)
 
                 if s >= DEG_SLOPE_THRESHOLD:
-                    lap = int(stint_df["lap"].iloc[i + WINDOW - 1])
-                    compound = stint_df["compound"].iloc[i]
-                    tyre_age = int(stint_df["tyre_age"].iloc[i + WINDOW - 1])
+                    lap = int(clean_df["lap"].iloc[i + WINDOW - 1])
+                    compound = clean_df["compound"].iloc[i]
+                    tyre_age = int(clean_df["tyre_age"].iloc[i + WINDOW - 1])
                     rank_score = round(min(1.0, s / SLOPE_MAX), 3)
 
                     window_lap_numbers = [
-                        int(stint_df["lap"].iloc[j]) for j in range(i, i + WINDOW)
+                        int(clean_df["lap"].iloc[j]) for j in range(i, i + WINDOW)
                     ]
                     window_lap_times = [round(float(t), 3) for t in window_times]
 
