@@ -16,10 +16,10 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Any
 
-DEG_SLOPE_THRESHOLD = 0.10   # sec/lap — minimum slope to flag
+DEG_SLOPE_THRESHOLD = 0.06   # sec/lap — minimum slope to flag
 SLOPE_MAX = 0.40              # sec/lap — slope that earns rank_score 1.0
 WINDOW = 5                    # laps in the regression window
-MIN_STINT_LAPS = 8            # don't flag before this many laps in a stint
+MIN_STINT_LAPS = 5            # don't flag before this many laps in a stint
 
 
 def _slope(lap_times: np.ndarray) -> float:

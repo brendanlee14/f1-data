@@ -21,9 +21,9 @@ BASE_LAP_TIME = 82.0  # seconds
 
 # Tyre compound configs: (deg_per_lap, initial_delta_vs_medium, cliff_lap)
 COMPOUND_PARAMS = {
-    "SOFT":   {"deg": 0.095, "delta": -0.6, "cliff": 16},
-    "MEDIUM": {"deg": 0.055, "delta":  0.0, "cliff": 26},
-    "HARD":   {"deg": 0.030, "delta":  0.5, "cliff": 40},
+    "SOFT":   {"deg": 0.14,  "delta": -0.6, "cliff": 16},
+    "MEDIUM": {"deg": 0.075, "delta":  0.0, "cliff": 26},
+    "HARD":   {"deg": 0.040, "delta":  0.5, "cliff": 30},
 }
 
 PIT_STOP_LOSS = 22.0  # seconds lost in a pit stop
@@ -83,7 +83,7 @@ def _tyre_deg_penalty(compound: str, age: int) -> float:
         # Exponential fall-off after cliff
         cliff_penalty = p["deg"] * p["cliff"]
         post_cliff_age = age - p["cliff"]
-        return cliff_penalty + p["deg"] * post_cliff_age * (1.0 + 0.04 * post_cliff_age)
+        return cliff_penalty + p["deg"] * post_cliff_age * (1.0 + 0.08 * post_cliff_age)
 
 
 def simulate_race(
