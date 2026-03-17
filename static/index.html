@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>F1 Strategy Insights</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #13131a;
+      --surface2:  #1c1c26;
+      --border:    #2a2a38;
+      --red:       #e10600;
+      --red-dim:   #8b0400;
+      --blue:      #3b82f6;
+      --amber:     #f59e0b;
+      --purple:    #8b5cf6;
+      --green:     #22c55e;
+      --muted:     #6b7280;
+      --text:      #f1f1f1;
+      --text-dim:  #9ca3af;
+      --radius:    10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 2px solid var(--red);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo-bar {
+      width: 4px;
+      height: 28px;
+      background: var(--red);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .header-title { font-size: 17px; font-weight: 700; letter-spacing: 0.5px; }
+    .header-race  { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+    .header-meta  { display: flex; flex-direction: column; }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .badge-count {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid var(--red);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* ── Filter Bar ── */
+    .filter-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      position: sticky;
+      top: 60px;
+      z-index: 90;
+    }
+    .filter-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+    .filter-group { display: flex; align-items: center; gap: 8px; }
+
+    /* Type toggle buttons */
+    .type-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .type-btn:hover { border-color: var(--text-dim); color: var(--text); }
+    .type-btn.active-all       { background: var(--red);    border-color: var(--red);    color: #fff; }
+    .type-btn.active-undercut  { background: var(--blue);   border-color: var(--blue);   color: #fff; }
+    .type-btn.active-overcut   { background: var(--amber);  border-color: var(--amber);  color: #000; }
+    .type-btn.active-tyre_degradation { background: var(--purple); border-color: var(--purple); color: #fff; }
+
+    /* Driver select */
+    select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
+    }
+    select:focus { border-color: var(--red); }
+
+    /* Rank slider */
+    .slider-group { display: flex; align-items: center; gap: 8px; }
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 120px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--red);
+      cursor: pointer;
+    }
+    .slider-val { font-size: 12px; color: var(--text-dim); min-width: 28px; }
+
+    /* ── Main grid ── */
+    main {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+    }
+
+    /* ── Insight card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .card:hover { transform: translateY(-2px); border-color: #3a3a50; }
+
+    .card-accent { height: 3px; }
+    .card-accent.undercut       { background: var(--blue); }
+    .card-accent.overcut        { background: var(--amber); }
+    .card-accent.tyre_degradation { background: var(--purple); }
+
+    .card-header {
+      padding: 14px 16px 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .card-body   { padding: 0 16px 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+    .type-pill {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      border-radius: 4px;
+      padding: 2px 7px;
+      flex-shrink: 0;
+    }
+    .type-pill.undercut       { background: rgba(59,130,246,.2); color: var(--blue); }
+    .type-pill.overcut        { background: rgba(245,158,11,.2); color: var(--amber); }
+    .type-pill.tyre_degradation { background: rgba(139,92,246,.2); color: var(--purple); }
+
+    .card-driver {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      line-height: 1;
+    }
+    .card-vs { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .card-lap-rank {
+      margin-left: auto;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .lap-num { font-size: 11px; color: var(--muted); }
+    .lap-val { font-size: 15px; font-weight: 700; }
+
+    /* Rank bar */
+    .rank-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    .rank-bar-track {
+      flex: 1;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .rank-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+    .rank-score-label { font-size: 11px; font-weight: 700; min-width: 30px; text-align: right; }
+
+    /* Summary */
+    .summary { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+
+    /* Detail grid */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border-radius: 6px;
+    }
+    .detail-item { display: flex; flex-direction: column; gap: 1px; }
+    .detail-key   { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .detail-value { font-size: 13px; font-weight: 600; }
+
+    /* Status badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 5px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      width: fit-content;
+    }
+    .status-badge.success { background: rgba(34,197,94,.15); color: var(--green); }
+    .status-badge.failure { background: rgba(239,68,68,.15);  color: #ef4444; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* Empty / error states */
+    .state-msg {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 80px 0;
+      color: var(--muted);
+    }
+    .state-msg .icon { font-size: 40px; margin-bottom: 12px; }
+    .state-msg h2 { font-size: 18px; margin-bottom: 6px; color: var(--text-dim); }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      header { padding: 0 16px; }
+      .filter-bar { padding: 10px 16px; top: 60px; }
+      main { padding: 16px; grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-bar"></div>
+  <div class="header-meta">
+    <span class="header-title">Strategy Insights</span>
+    <span class="header-race" id="raceLabel">Loading…</span>
+  </div>
+  <div class="header-right">
+    <span class="badge-count" id="countBadge">0</span>
+  </div>
+</header>
+
+<div class="filter-bar">
+  <div class="filter-group">
+    <span class="filter-label">Type</span>
+    <button class="type-btn active-all" data-type="all">All</button>
+    <button class="type-btn" data-type="undercut">Undercut</button>
+    <button class="type-btn" data-type="overcut">Overcut</button>
+    <button class="type-btn" data-type="tyre_degradation">Tyre Deg</button>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Driver</span>
+    <select id="driverSelect">
+      <option value="">All Drivers</option>
+    </select>
+  </div>
+  <div class="filter-group slider-group">
+    <span class="filter-label">Min Score</span>
+    <input type="range" id="rankSlider" min="0" max="1" step="0.05" value="0" />
+    <span class="slider-val" id="sliderVal">0.00</span>
+  </div>
+</div>
+
+<main id="grid">
+  <div class="state-msg"><div class="icon">⏳</div><h2>Loading insights…</h2></div>
+</main>
+
+<script>
+  let allInsights = [];
+  let activeType   = 'all';
+  let activeDriver = '';
+  let minRank      = 0;
+
+  // ── Fetch data ─────────────────────────────────────────────────────────────
+  async function loadInsights() {
+    try {
+      const res = await fetch('/insights?limit=500');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      allInsights = data.insights;
+      document.getElementById('raceLabel').textContent = data.race;
+      populateDrivers();
+      render();
+    } catch (err) {
+      document.getElementById('grid').innerHTML =
+        `<div class="state-msg"><div class="icon">⚠️</div>
+          <h2>Failed to load insights</h2><p>${err.message}</p></div>`;
+    }
+  }
+
+  // ── Build driver dropdown ──────────────────────────────────────────────────
+  function populateDrivers() {
+    const drivers = [...new Set(allInsights.map(i => i.driver))].sort();
+    const sel = document.getElementById('driverSelect');
+    drivers.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = d;
+      sel.appendChild(opt);
+    });
+  }
+
+  // ── Filter + render ────────────────────────────────────────────────────────
+  function render() {
+    const filtered = allInsights.filter(i => {
+      if (activeType !== 'all' && i.insight_type !== activeType) return false;
+      if (activeDriver && i.driver !== activeDriver) return false;
+      if (i.rank_score < minRank) return false;
+      return true;
+    });
+
+    document.getElementById('countBadge').textContent = filtered.length;
+    const grid = document.getElementById('grid');
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `<div class="state-msg"><div class="icon">🔍</div>
+        <h2>No insights match the current filters</h2></div>`;
+      return;
+    }
+
+    grid.innerHTML = filtered.map(renderCard).join('');
+  }
+
+  // ── Single card ────────────────────────────────────────────────────────────
+  function renderCard(ins) {
+    const rankColor = ins.rank_score >= 0.75 ? 'var(--red)'
+                    : ins.rank_score >= 0.45 ? 'var(--amber)'
+                    : 'var(--muted)';
+    const rankPct   = (ins.rank_score * 100).toFixed(0);
+
+    const typeLabel = {
+      undercut:         'Undercut',
+      overcut:          'Overcut',
+      tyre_degradation: 'Tyre Deg',
+    }[ins.insight_type] ?? ins.insight_type;
+
+    const vsHtml = ins.detail.target_driver
+      ? `<div class="card-vs">vs ${ins.detail.target_driver}</div>`
+      : '';
+
+    return `
+    <div class="card">
+      <div class="card-accent ${ins.insight_type}"></div>
+      <div class="card-header">
+        <div>
+          <span class="type-pill ${ins.insight_type}">${typeLabel}</span>
+          <div class="card-driver" style="margin-top:6px">${ins.driver}</div>
+          ${vsHtml}
+        </div>
+        <div class="card-lap-rank">
+          <div class="lap-num">LAP</div>
+          <div class="lap-val">${ins.lap}</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="rank-row">
+          <div class="rank-bar-track">
+            <div class="rank-bar-fill" style="width:${rankPct}%;background:${rankColor}"></div>
+          </div>
+          <span class="rank-score-label" style="color:${rankColor}">${ins.rank_score.toFixed(2)}</span>
+        </div>
+        <div class="summary">${ins.summary}</div>
+        ${renderDetail(ins)}
+      </div>
+    </div>`;
+  }
+
+  // ── Detail grid per insight type ───────────────────────────────────────────
+  function renderDetail(ins) {
+    const d = ins.detail;
+    let items = [];
+
+    if (ins.insight_type === 'undercut') {
+      items = [
+        ['Pit lap',      d.undercut_driver_pit_lap],
+        ['Laps early',   d.laps_early],
+        ['Pace adv',     `${d.pace_advantage_sec_per_lap?.toFixed(3)} s/lap`],
+        ['Gap before',   `${d.gap_before_sec?.toFixed(2)}s`],
+        ['Gap after',    `${d.gap_after_sec?.toFixed(2)}s`],
+        ['Pos gap',      d.position_gap],
+      ];
+    } else if (ins.insight_type === 'overcut') {
+      items = [
+        ['Pit lap',      d.overcut_driver_pit_lap],
+        ['Stayed out',   `${d.laps_stayed_out} laps`],
+        ['Gap gained',   `+${d.gap_gained_sec?.toFixed(2)}s`],
+        ['Gap before',   `${d.gap_before_sec?.toFixed(2)}s`],
+        ['Gap after',    `${d.gap_after_sec?.toFixed(2)}s`],
+        ['Pos gap',      d.position_gap],
+      ];
+    } else if (ins.insight_type === 'tyre_degradation') {
+      items = [
+        ['Compound',     d.compound],
+        ['Tyre age',     `${d.tyre_age} laps`],
+        ['Stint',        d.stint_number],
+        ['Deg rate',     `${d.deg_slope_sec_per_lap?.toFixed(3)} s/lap`],
+        ['Window',       `${d.window_laps} laps`],
+      ];
+    }
+
+    const gridHtml = items.map(([k, v]) =>
+      `<div class="detail-item">
+        <span class="detail-key">${k}</span>
+        <span class="detail-value">${v ?? '—'}</span>
+      </div>`
+    ).join('');
+
+    const statusHtml = ('undercut_succeeded' in d || 'overcut_succeeded' in d)
+      ? (() => {
+          const ok = d.undercut_succeeded ?? d.overcut_succeeded;
+          return `<div class="status-badge ${ok ? 'success' : 'failure'}">
+            <span class="status-dot"></span>
+            ${ok ? 'Succeeded' : 'Did not succeed'}
+          </div>`;
+        })()
+      : '';
+
+    return `<div class="detail-grid">${gridHtml}</div>${statusHtml}`;
+  }
+
+  // ── Event listeners ────────────────────────────────────────────────────────
+  document.querySelectorAll('.type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeType = btn.dataset.type;
+      document.querySelectorAll('.type-btn').forEach(b => {
+        b.className = 'type-btn';
+        if (b.dataset.type === activeType) b.classList.add(`active-${activeType}`);
+      });
+      render();
+    });
+  });
+
+  document.getElementById('driverSelect').addEventListener('change', e => {
+    activeDriver = e.target.value;
+    render();
+  });
+
+  document.getElementById('rankSlider').addEventListener('input', e => {
+    minRank = parseFloat(e.target.value);
+    document.getElementById('sliderVal').textContent = minRank.toFixed(2);
+    render();
+  });
+
+  loadInsights();
+</script>
+</body>
+</html>

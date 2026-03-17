@@ -12,13 +12,17 @@ Endpoints:
     GET /insights/{insight_type}
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from engine.strategy import StrategyAnalyser
 from engine.strategy.output import _build_envelope, SCHEMA_VERSION
+
+STATIC_DIR = Path(__file__).parent.parent / "static"
 
 app = FastAPI(
     title="F1 Strategy Insights",
@@ -27,6 +31,8 @@ app = FastAPI(
 )
 
 VALID_INSIGHT_TYPES = {"tyre_degradation", "undercut", "overcut"}
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ---------------------------------------------------------------------------
 # Shared state — race data and insights loaded once at startup
@@ -41,6 +47,12 @@ RACE_LABEL = "Melbourne 2026"
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.get("/")
+def index() -> FileResponse:
+    """Serve the frontend."""
+    return FileResponse(str(STATIC_DIR / "index.html"))
+
 
 @app.get("/health")
 def health() -> Dict[str, str]:
