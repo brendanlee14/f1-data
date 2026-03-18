@@ -243,6 +243,48 @@
     .lap-expand-btn .chevron { display: inline-block; transition: transform 0.2s; margin-right: 4px; }
     .lap-expand-btn.open .chevron { transform: rotate(90deg); }
 
+    /* ── Lap data tab strip ── */
+    .lap-data-tabs {
+      display: none;
+      margin-top: 8px;
+    }
+    .lap-data-tabs.open { display: block; }
+    .tab-strip {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .tab-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 5px;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .tab-btn:hover { border-color: var(--purple); color: var(--text); }
+    .tab-btn.active { border-color: var(--purple); color: var(--purple); background: rgba(139,92,246,0.1); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── SVG charts ── */
+    .chart-svg { width: 100%; overflow: visible; display: block; }
+    .chart-axis { stroke: var(--border); stroke-width: 1; }
+    .chart-gridline { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,4; }
+    .chart-label { fill: var(--muted); font-size: 10px; font-family: inherit; }
+    .chart-dot-clean { fill: var(--text); stroke: none; }
+    .chart-dot-window { fill: var(--purple); stroke: none; }
+    .chart-dot-flagged { fill: var(--muted); stroke: none; }
+    .chart-trendline { stroke: var(--red); stroke-width: 1.5; fill: none; stroke-dasharray: 5,3; }
+    .chart-window-shade { fill: rgba(139,92,246,0.08); stroke: rgba(139,92,246,0.25); stroke-width: 0.5; }
+    .chart-whisker { stroke: var(--text-dim); stroke-width: 1.5; fill: none; }
+    .chart-box { fill: rgba(59,130,246,0.15); stroke: var(--blue); stroke-width: 1.5; }
+    .chart-median { stroke: var(--amber); stroke-width: 2; }
+
     .lap-times-table {
       display: none;
       width: 100%;
@@ -547,15 +589,27 @@
         </tr>`;
       }).join('');
 
+      const trendSvg = buildTrendSvg(d.stint_laps, d.window_lap_numbers);
+      const boxSvg   = buildBoxSvg(d.stint_laps, d.window_lap_numbers);
+
       lapExpandHtml = `
         <button class="lap-expand-btn" onclick="toggleLapTimes('${uid}', this)">
           <span class="chevron">▶</span> ${label}
         </button>
-        <div class="lap-times-wrap" id="${uid}" style="display:none;max-height:220px;overflow-y:auto;margin-top:6px;border-radius:6px;border:1px solid var(--border)">
-          <table class="lap-times-table visible" style="margin-top:0">
-            <thead><tr><th>Lap</th><th>Time</th><th style="text-align:right">Δ prev</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
+        <div class="lap-data-tabs" id="${uid}">
+          <div class="tab-strip">
+            <button class="tab-btn" id="tab-${uid}-chart" onclick="switchTab('${uid}','chart')">Trend</button>
+            ${boxSvg ? `<button class="tab-btn" id="tab-${uid}-box" onclick="switchTab('${uid}','box')">Box</button>` : ''}
+            <button class="tab-btn" id="tab-${uid}-table" onclick="switchTab('${uid}','table')">Table</button>
+          </div>
+          <div class="tab-panel" id="${uid}-chart" style="padding:0 2px">${trendSvg}</div>
+          ${boxSvg ? `<div class="tab-panel" id="${uid}-box" style="padding:0 2px">${boxSvg}</div>` : ''}
+          <div class="tab-panel" id="${uid}-table" style="max-height:220px;overflow-y:auto;border-radius:6px;border:1px solid var(--border)">
+            <table class="lap-times-table visible" style="margin-top:0">
+              <thead><tr><th>Lap</th><th>Time</th><th style="text-align:right">Δ prev</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
         </div>`;
     }
 
@@ -585,11 +639,215 @@
     render();
   });
 
+  // ── Chart math helpers ──────────────────────────────────────────────────────
+
+  function linReg(xs, ys) {
+    const n = xs.length;
+    const mx = xs.reduce((a, b) => a + b, 0) / n;
+    const my = ys.reduce((a, b) => a + b, 0) / n;
+    const cov = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0);
+    const vx  = xs.reduce((s, x) => s + (x - mx) ** 2, 0);
+    const slope = cov / vx;
+    return { slope, intercept: my - slope * mx };
+  }
+
+  function quartiles(sorted) {
+    const n = sorted.length;
+    const mid = (arr) => arr.length % 2 === 0
+      ? (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2
+      : arr[Math.floor(arr.length / 2)];
+    const lower = sorted.slice(0, Math.floor(n / 2));
+    const upper = n % 2 === 0 ? sorted.slice(n / 2) : sorted.slice(Math.ceil(n / 2));
+    return { min: sorted[0], q1: mid(lower), median: mid(sorted), q3: mid(upper), max: sorted[n - 1] };
+  }
+
+  // ── Trend line SVG ──────────────────────────────────────────────────────────
+  // Shows all stint laps. Clean laps = dots; SC/VSC = flag markers at axis
+  // bottom. Regression window shaded; trend line extrapolated from window reg.
+
+  function buildTrendSvg(stintLaps, windowLapNumbers) {
+    const W = 420, H = 140;
+    const ml = 50, mr = 12, mt = 14, mb = 34;
+    const pw = W - ml - mr, ph = H - mt - mb;
+
+    const allLaps   = stintLaps;
+    const cleanLaps = stintLaps.filter(l => !l.flag);
+    const winSet    = new Set(windowLapNumbers);
+
+    const lapNums = allLaps.map(l => l.lap);
+    const minLap  = Math.min(...lapNums), maxLap = Math.max(...lapNums);
+    const cleanTs = cleanLaps.map(l => l.time);
+    const pad = (Math.max(...cleanTs) - Math.min(...cleanTs)) * 0.3 + 0.2;
+    const minT = Math.min(...cleanTs) - pad, maxT = Math.max(...cleanTs) + pad;
+
+    const xS = lap => ml + (lap - minLap) / Math.max(1, maxLap - minLap) * pw;
+    const yS = t   => mt + ph - (t - minT) / (maxT - minT) * ph;
+
+    // Regression line through window laps
+    const winLaps  = stintLaps.filter(l => winSet.has(l.lap));
+    const wxs = winLaps.map(l => l.lap), wys = winLaps.map(l => l.time);
+    const { slope, intercept } = linReg(wxs, wys);
+    const trendX1 = minLap, trendX2 = maxLap;
+    const trendY1 = slope * trendX1 + intercept;
+    const trendY2 = slope * trendX2 + intercept;
+
+    // Window shade rect
+    const winMin = Math.min(...windowLapNumbers), winMax = Math.max(...windowLapNumbers);
+    const shadeX = xS(winMin - 0.5), shadeW = xS(winMax + 0.5) - xS(winMin - 0.5);
+    const shade = `<rect class="chart-window-shade" x="${shadeX.toFixed(1)}" y="${mt}" width="${shadeW.toFixed(1)}" height="${ph}" rx="3"/>`;
+
+    // Y-axis grid + labels (4 ticks)
+    const ticks = 4;
+    let gridLines = '', yLabels = '';
+    for (let i = 0; i <= ticks; i++) {
+      const t = minT + (maxT - minT) * i / ticks;
+      const y = yS(t).toFixed(1);
+      gridLines += `<line class="chart-gridline" x1="${ml}" y1="${y}" x2="${W - mr}" y2="${y}"/>`;
+      yLabels   += `<text class="chart-label" x="${ml - 4}" y="${(parseFloat(y) + 3).toFixed(1)}" text-anchor="end">${t.toFixed(1)}</text>`;
+    }
+
+    // X-axis labels (first, last, and a spread)
+    const xLapRange = maxLap - minLap;
+    const xStep = xLapRange <= 10 ? 2 : xLapRange <= 20 ? 5 : 10;
+    let xLabels = '';
+    for (let lap = minLap; lap <= maxLap; lap++) {
+      if ((lap - minLap) % xStep === 0 || lap === maxLap) {
+        xLabels += `<text class="chart-label" x="${xS(lap).toFixed(1)}" y="${H - mb + 14}" text-anchor="middle">${lap}</text>`;
+      }
+    }
+
+    // Flag markers at axis (SC/VSC laps)
+    let flagMarkers = '';
+    stintLaps.filter(l => l.flag).forEach(l => {
+      const x = xS(l.lap).toFixed(1);
+      const cls = l.flag === 'SC' ? 'var(--red)' : 'var(--amber)';
+      flagMarkers += `<text x="${x}" y="${H - mb + 26}" text-anchor="middle" fill="${cls}" font-size="8" font-weight="800" font-family="inherit">${l.flag}</text>`;
+      flagMarkers += `<line stroke="${cls}" stroke-width="0.8" stroke-dasharray="2,2" x1="${x}" y1="${mt}" x2="${x}" y2="${H - mb + 2}"/>`;
+    });
+
+    // Dots
+    let dots = '';
+    cleanLaps.forEach(l => {
+      const cx = xS(l.lap).toFixed(1), cy = yS(l.time).toFixed(1);
+      const cls = winSet.has(l.lap) ? 'chart-dot-window' : 'chart-dot-clean';
+      const r = winSet.has(l.lap) ? 3.5 : 2.5;
+      dots += `<circle class="${cls}" cx="${cx}" cy="${cy}" r="${r}"><title>Lap ${l.lap}: ${l.time.toFixed(3)}s</title></circle>`;
+    });
+
+    // Trend line (clamp to plot area)
+    const ty1 = Math.max(mt, Math.min(mt + ph, yS(trendY1))).toFixed(1);
+    const ty2 = Math.max(mt, Math.min(mt + ph, yS(trendY2))).toFixed(1);
+    const trendLine = `<line class="chart-trendline" x1="${xS(trendX1).toFixed(1)}" y1="${ty1}" x2="${xS(trendX2).toFixed(1)}" y2="${ty2}"/>`;
+
+    // Axis lines
+    const axes = `<line class="chart-axis" x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt + ph}"/>
+      <line class="chart-axis" x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}"/>`;
+
+    // Legend
+    const legY = mt - 2;
+    const legend = `<g font-size="9" font-family="inherit">
+      <circle cx="${ml + 6}" cy="${legY}" r="3" fill="var(--text)"/><text fill="var(--muted)" x="${ml + 12}" y="${legY + 3}">lap</text>
+      <circle cx="${ml + 46}" cy="${legY}" r="3.5" fill="var(--purple)"/><text fill="var(--muted)" x="${ml + 52}" y="${legY + 3}">window</text>
+      <line x1="${ml + 102}" y1="${legY}" x2="${ml + 116}" y2="${legY}" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4,2"/><text fill="var(--muted)" x="${ml + 119}" y="${legY + 3}">trend</text>
+    </g>`;
+
+    return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      ${shade}${gridLines}${axes}${trendLine}${dots}${flagMarkers}${yLabels}${xLabels}${legend}
+      <text class="chart-label" x="${ml - 32}" y="${mt + ph / 2}" text-anchor="middle" transform="rotate(-90,${ml - 32},${mt + ph / 2})">Time (s)</text>
+      <text class="chart-label" x="${ml + pw / 2}" y="${H}" text-anchor="middle">Lap</text>
+    </svg>`;
+  }
+
+  // ── Box (whisker) plot SVG ───────────────────────────────────────────────────
+  // Horizontal box plot of clean lap times with individual dots overlaid.
+
+  function buildBoxSvg(stintLaps, windowLapNumbers) {
+    const W = 420, H = 72;
+    const ml = 50, mr = 12, mt = 18, mb = 18;
+    const pw = W - ml - mr;
+
+    const cleanTimes = stintLaps.filter(l => !l.flag).map(l => l.time).sort((a, b) => a - b);
+    if (cleanTimes.length < 3) return '';
+
+    const q = quartiles(cleanTimes);
+    const range = q.max - q.min;
+    const pad = range * 0.15 + 0.1;
+    const domMin = q.min - pad, domMax = q.max + pad;
+    const xS = t => ml + (t - domMin) / (domMax - domMin) * pw;
+
+    const winSet = new Set(windowLapNumbers);
+    const midY = mt + (H - mt - mb) / 2;
+    const boxH = 18, wH = 8;
+
+    // Whiskers
+    const whisker = `
+      <line class="chart-whisker" x1="${xS(q.min).toFixed(1)}" y1="${midY}" x2="${xS(q.q1).toFixed(1)}" y2="${midY}"/>
+      <line class="chart-whisker" x1="${xS(q.min).toFixed(1)}" y1="${(midY - wH / 2).toFixed(1)}" x2="${xS(q.min).toFixed(1)}" y2="${(midY + wH / 2).toFixed(1)}"/>
+      <line class="chart-whisker" x1="${xS(q.q3).toFixed(1)}" y1="${midY}" x2="${xS(q.max).toFixed(1)}" y2="${midY}"/>
+      <line class="chart-whisker" x1="${xS(q.max).toFixed(1)}" y1="${(midY - wH / 2).toFixed(1)}" x2="${xS(q.max).toFixed(1)}" y2="${(midY + wH / 2).toFixed(1)}"/>`;
+
+    // IQR box
+    const boxX = xS(q.q1), boxW = xS(q.q3) - xS(q.q1);
+    const box = `<rect class="chart-box" x="${boxX.toFixed(1)}" y="${(midY - boxH / 2).toFixed(1)}" width="${boxW.toFixed(1)}" height="${boxH}"/>`;
+
+    // Median line
+    const medX = xS(q.median).toFixed(1);
+    const medLine = `<line class="chart-median" x1="${medX}" y1="${(midY - boxH / 2).toFixed(1)}" x2="${medX}" y2="${(midY + boxH / 2).toFixed(1)}"/>`;
+
+    // Individual dots (window laps in purple)
+    const lapLookup = Object.fromEntries(stintLaps.filter(l => !l.flag).map(l => [l.time, l.lap]));
+    let dots = '';
+    cleanTimes.forEach((t, idx) => {
+      const cx = xS(t).toFixed(1);
+      const lap = lapLookup[t];
+      const inWin = winSet.has(lap);
+      const jitter = (idx % 3 - 1) * 3; // slight vertical spread
+      dots += `<circle cx="${cx}" cy="${(midY + jitter).toFixed(1)}" r="${inWin ? 3.5 : 2.5}"
+        fill="${inWin ? 'var(--purple)' : 'var(--text)'}" opacity="${inWin ? 1 : 0.6}">
+        <title>Lap ${lap}: ${t.toFixed(3)}s</title></circle>`;
+    });
+
+    // X-axis labels
+    const labelTs = [q.min, q.q1, q.median, q.q3, q.max];
+    let xLabels = '';
+    labelTs.forEach(t => {
+      xLabels += `<text class="chart-label" x="${xS(t).toFixed(1)}" y="${mt + (H - mt - mb) / 2 + boxH / 2 + 12}" text-anchor="middle">${t.toFixed(2)}</text>`;
+    });
+
+    // Stat labels above box
+    const statLabels = `
+      <text class="chart-label" x="${xS(q.q1).toFixed(1)}" y="${(midY - boxH / 2 - 4).toFixed(1)}" text-anchor="middle" fill="var(--blue)">Q1</text>
+      <text class="chart-label" x="${medX}" y="${(midY - boxH / 2 - 4).toFixed(1)}" text-anchor="middle" fill="var(--amber)">Med</text>
+      <text class="chart-label" x="${xS(q.q3).toFixed(1)}" y="${(midY - boxH / 2 - 4).toFixed(1)}" text-anchor="middle" fill="var(--blue)">Q3</text>`;
+
+    const axis = `<line class="chart-axis" x1="${ml}" y1="${midY + boxH / 2 + 2}" x2="${W - mr}" y2="${midY + boxH / 2 + 2}"/>`;
+
+    return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      ${axis}${whisker}${box}${medLine}${dots}${xLabels}${statLabels}
+      <text class="chart-label" x="${ml - 4}" y="${midY + 3}" text-anchor="end">s</text>
+    </svg>`;
+  }
+
+  // ── Tab switching ────────────────────────────────────────────────────────────
+
+  function switchTab(uid, tab) {
+    ['chart', 'box', 'table'].forEach(t => {
+      const panel = document.getElementById(`${uid}-${t}`);
+      const btn   = document.getElementById(`tab-${uid}-${t}`);
+      if (panel) panel.classList.toggle('active', t === tab);
+      if (btn)   btn.classList.toggle('active', t === tab);
+    });
+  }
+
   function toggleLapTimes(uid, btn) {
     const wrap = document.getElementById(uid);
-    const open = wrap.style.display === 'none';
-    wrap.style.display = open ? '' : 'none';
+    const open = wrap.classList.toggle('open');
     btn.classList.toggle('open', open);
+    // Activate default tab on first open
+    if (open && !wrap.dataset.inited) {
+      wrap.dataset.inited = '1';
+      switchTab(uid, 'chart');
+    }
   }
 
   loadInsights();
