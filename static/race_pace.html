@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>F1 Race Pace Analysis</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0a0a0f;
+      --surface:  #13131a;
+      --surface2: #1c1c26;
+      --border:   #2a2a38;
+      --red:      #e10600;
+      --red-dim:  #8b0400;
+      --amber:    #f59e0b;
+      --purple:   #8b5cf6;
+      --green:    #22c55e;
+      --blue:     #3b82f6;
+      --muted:    #6b7280;
+      --text:     #f1f1f1;
+      --text-dim: #9ca3af;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 2px solid var(--red);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo-bar { width: 4px; height: 28px; background: var(--red); border-radius: 2px; }
+    .header-meta { display: flex; flex-direction: column; }
+    .header-title { font-size: 17px; font-weight: 700; letter-spacing: 0.5px; }
+    .header-race  { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      border: 1px solid var(--border);
+      padding: 4px 12px;
+      border-radius: 6px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .nav-link:hover { color: var(--text); border-color: var(--text-dim); }
+
+    /* ── Layout ── */
+    main { max-width: 1080px; margin: 0 auto; padding: 24px 20px 48px; }
+
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .section-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── Chart containers ── */
+    .chart-wrap {
+      overflow-x: auto;
+      overflow-y: visible;
+    }
+    .chart-wrap svg { display: block; min-width: 680px; }
+
+    /* ── Legend grid ── */
+    .legend-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .legend-swatch {
+      width: 24px;
+      height: 3px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .legend-swatch.dashed {
+      background: repeating-linear-gradient(
+        90deg, var(--c, #fff) 0 4px, transparent 4px 7px
+      );
+      height: 2px;
+    }
+
+    /* ── Strategy table ── */
+    .strategy-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .strategy-table th {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .strategy-table td { padding: 6px 10px; border-bottom: 1px solid rgba(42,42,56,0.6); }
+    .strategy-table tr:last-child td { border-bottom: none; }
+    .strategy-table .driver-code { font-weight: 700; font-size: 13px; }
+    .strategy-table .delta-bar-wrap { display: flex; align-items: center; gap: 8px; }
+    .delta-bar {
+      height: 6px;
+      border-radius: 3px;
+      min-width: 3px;
+      transition: width 0.3s;
+    }
+    .compound-pill {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-right: 2px;
+    }
+    .pill-s { background: rgba(225,6,0,.25);  color: #ff7878; border: 1px solid rgba(225,6,0,.4); }
+    .pill-m { background: rgba(245,158,11,.2); color: #fbbf24; border: 1px solid rgba(245,158,11,.4); }
+    .pill-h { background: rgba(200,200,200,.15); color: #d1d5db; border: 1px solid rgba(200,200,200,.3); }
+
+    /* ── Loading ── */
+    .loading { text-align: center; padding: 60px; color: var(--muted); }
+    .loading span { font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-bar"></div>
+  <div class="header-meta">
+    <div class="header-title">F1 Strategy Insights</div>
+    <div class="header-race" id="raceLabel">Loading…</div>
+  </div>
+  <div class="header-right">
+    <a class="nav-link" href="/">← Insights</a>
+  </div>
+</header>
+
+<main>
+  <div id="loadingMsg" class="loading"><span>Loading race pace data…</span></div>
+
+  <div id="content" style="display:none">
+
+    <!-- ── Box Plot ── -->
+    <div class="section">
+      <div class="section-title">Race Pace Distribution</div>
+      <div class="section-sub">Drivers sorted by mean clean lap time · Boxes = IQR (50% of laps) · Whiskers = 1.5×IQR · Dashed = mean · Solid = median</div>
+      <div class="chart-wrap" id="boxPlotWrap"></div>
+    </div>
+
+    <!-- ── Smoothed Lap Trace ── -->
+    <div class="section">
+      <div class="section-title">Smoothed Lap-by-Lap Race Pace</div>
+      <div class="section-sub">5-lap centred rolling average · Pit laps and flagged laps excluded</div>
+      <div class="chart-wrap" id="lapTraceWrap"></div>
+      <div class="legend-grid" id="traceLegend"></div>
+    </div>
+
+    <!-- ── Strategy Summary ── -->
+    <div class="section">
+      <div class="section-title">Race Strategy Summary</div>
+      <div class="section-sub">Drivers sorted by mean pace · delta vs race leader</div>
+      <table class="strategy-table" id="strategyTable"></table>
+    </div>
+
+  </div>
+</main>
+
+<script>
+// ── Team colours ────────────────────────────────────────────────────────────
+
+const TEAM_COLOR = {
+  'Red Bull':     '#3671C6',
+  'McLaren':      '#FF8000',
+  'Ferrari':      '#E8002D',
+  'Mercedes':     '#00D2BE',
+  'Aston Martin': '#358C75',
+  'Alpine':       '#FF87BC',
+  'Williams':     '#64C4FF',
+  'Haas':         '#B6BABD',
+  'Sauber':       '#52E252',
+  'Racing Bulls':  '#6692FF',
+};
+
+function teamColor(team) {
+  return TEAM_COLOR[team] || '#9ca3af';
+}
+
+// Compound pill HTML
+function compoundPill(c) {
+  const cls = c === 'SOFT' ? 'pill-s' : c === 'MEDIUM' ? 'pill-m' : 'pill-h';
+  return `<span class="compound-pill ${cls}">${c[0]}</span>`;
+}
+
+// ── Math helpers ─────────────────────────────────────────────────────────────
+
+function smoothedTrace(lapTimesObj, minLap, maxLap, half=2) {
+  const result = {};
+  for (let lap = minLap; lap <= maxLap; lap++) {
+    let sum = 0, count = 0;
+    for (let dl = -half; dl <= half; dl++) {
+      const t = lapTimesObj[String(lap + dl)];
+      if (t != null) { sum += t; count++; }
+    }
+    result[lap] = count >= 2 ? sum / count : null;
+  }
+  return result;
+}
+
+function autoGroups(drivers, threshold=0.30) {
+  const groups = [];
+  let start = 0;
+  for (let i = 1; i < drivers.length; i++) {
+    if (drivers[i].delta - drivers[i-1].delta > threshold) {
+      groups.push({ start, end: i - 1 });
+      start = i;
+    }
+  }
+  groups.push({ start, end: drivers.length - 1 });
+  return groups;
+}
+
+const GROUP_DEFS = [
+  { label: 'Frontrunners',     fill: 'rgba(34,197,94,0.07)',   stroke: 'rgba(34,197,94,0.30)',   text: '#22c55e' },
+  { label: "No Man's Land",   fill: 'rgba(245,158,11,0.07)',  stroke: 'rgba(245,158,11,0.30)',  text: '#f59e0b' },
+  { label: 'Best of the Rest', fill: 'rgba(139,92,246,0.07)',  stroke: 'rgba(139,92,246,0.30)',  text: '#a78bfa' },
+  { label: 'Backmarkers',      fill: 'rgba(107,114,128,0.06)', stroke: 'rgba(107,114,128,0.35)', text: '#9ca3af' },
+];
+
+// ── Box Plot SVG ─────────────────────────────────────────────────────────────
+
+function buildBoxPlot(drivers) {
+  const W = 960, H = 340;
+  const ml = 58, mr = 16, mt = 68, mb = 96;
+  const pw = W - ml - mr;
+  const ph = H - mt - mb;  // 176
+
+  const n    = drivers.length;
+  const colW = pw / n;
+  const boxW = Math.max(16, Math.min(30, colW * 0.50));
+
+  // Y range — all box values + outliers
+  const allVals = drivers.flatMap(d => [
+    d.box.min, d.box.q1, d.box.median, d.box.q3, d.box.max, ...d.box.outliers, d.mean,
+  ]);
+  const rawMin = Math.min(...allVals), rawMax = Math.max(...allVals);
+  const yPad = (rawMax - rawMin) * 0.08 + 0.15;
+  const yMin = rawMin - yPad, yMax = rawMax + yPad;
+
+  const xC = i => ml + (i + 0.5) * colW;  // column centre x
+  const yS = t  => mt + ph - (t - yMin) / (yMax - yMin) * ph;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"
+    style="font-family:inherit">`;
+
+  // ── Group annotation rects ──
+  const groups = autoGroups(drivers);
+  groups.forEach((g, gi) => {
+    const def   = GROUP_DEFS[Math.min(gi, GROUP_DEFS.length - 1)];
+    const x1    = ml + g.start * colW + 3;
+    const x2    = ml + (g.end + 1) * colW - 3;
+    const rectW = x2 - x1;
+    svg += `<rect x="${x1.toFixed(1)}" y="${mt}" width="${rectW.toFixed(1)}" height="${ph}"
+      fill="${def.fill}" stroke="${def.stroke}" stroke-width="1" rx="4"/>`;
+    const lx = ((x1 + x2) / 2).toFixed(1);
+    svg += `<text x="${lx}" y="${(mt - 10).toFixed(1)}" text-anchor="middle"
+      fill="${def.text}" font-size="10" font-weight="700" letter-spacing="0.5">${def.label}</text>`;
+  });
+
+  // ── Y-axis gridlines + labels ──
+  const yStep = (yMax - yMin) > 5 ? 1.0 : 0.5;
+  const yStart = Math.ceil(yMin / yStep) * yStep;
+  for (let t = yStart; t <= yMax + 0.001; t += yStep) {
+    const y = yS(t).toFixed(1);
+    svg += `<line x1="${ml}" y1="${y}" x2="${W - mr}" y2="${y}"
+      stroke="#2a2a38" stroke-width="0.6" stroke-dasharray="3,4"/>`;
+    svg += `<text x="${(ml - 5).toFixed(1)}" y="${(parseFloat(y) + 3.5).toFixed(1)}"
+      text-anchor="end" fill="#6b7280" font-size="9">${t.toFixed(1)}</text>`;
+  }
+
+  // ── Axis lines ──
+  svg += `<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt + ph}" stroke="#2a2a38" stroke-width="1"/>`;
+  svg += `<line x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}" stroke="#2a2a38" stroke-width="1"/>`;
+
+  // ── Y-axis label ──
+  const lyMid = (mt + mt + ph) / 2;
+  svg += `<text x="12" y="${lyMid.toFixed(1)}" text-anchor="middle" fill="#6b7280"
+    font-size="9" transform="rotate(-90,12,${lyMid.toFixed(1)})">Lap time (s)</text>`;
+
+  // ── Per-driver boxes ──
+  drivers.forEach((d, i) => {
+    const cx    = xC(i);
+    const color = teamColor(d.team);
+    const b     = d.box;
+    const bx    = (cx - boxW / 2).toFixed(1);
+    const bw    = boxW.toFixed(1);
+
+    const yQ1  = yS(b.q1).toFixed(1);
+    const yQ3  = yS(b.q3).toFixed(1);
+    const yMed = yS(b.median).toFixed(1);
+    const yMean = yS(d.mean).toFixed(1);
+    const yWlo  = yS(b.min).toFixed(1);
+    const yWhi  = yS(b.max).toFixed(1);
+    const bh    = (parseFloat(yQ1) - parseFloat(yQ3)).toFixed(1);
+    const capW  = (boxW * 0.5).toFixed(1);
+
+    // IQR box
+    svg += `<rect x="${bx}" y="${yQ3}" width="${bw}" height="${bh}"
+      fill="${color}28" stroke="${color}" stroke-width="1.4" rx="2"/>`;
+
+    // Upper whisker (from Q3 to max)
+    svg += `<line x1="${cx.toFixed(1)}" y1="${yQ3}" x2="${cx.toFixed(1)}" y2="${yWhi}"
+      stroke="${color}" stroke-width="1" stroke-dasharray="none"/>`;
+    svg += `<line x1="${(cx - parseFloat(capW)/2).toFixed(1)}" y1="${yWhi}"
+      x2="${(cx + parseFloat(capW)/2).toFixed(1)}" y2="${yWhi}"
+      stroke="${color}" stroke-width="1.2"/>`;
+
+    // Lower whisker (from Q1 to min)
+    svg += `<line x1="${cx.toFixed(1)}" y1="${yQ1}" x2="${cx.toFixed(1)}" y2="${yWlo}"
+      stroke="${color}" stroke-width="1" />`;
+    svg += `<line x1="${(cx - parseFloat(capW)/2).toFixed(1)}" y1="${yWlo}"
+      x2="${(cx + parseFloat(capW)/2).toFixed(1)}" y2="${yWlo}"
+      stroke="${color}" stroke-width="1.2"/>`;
+
+    // Median line (solid, bright)
+    svg += `<line x1="${bx}" y1="${yMed}" x2="${(parseFloat(bx)+parseFloat(bw)).toFixed(1)}" y2="${yMed}"
+      stroke="#f1f1f1" stroke-width="2"/>`;
+
+    // Mean dashed line
+    svg += `<line x1="${bx}" y1="${yMean}" x2="${(parseFloat(bx)+parseFloat(bw)).toFixed(1)}" y2="${yMean}"
+      stroke="#f1f1f1" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.7"/>`;
+
+    // Outlier dots
+    b.outliers.forEach(ot => {
+      svg += `<circle cx="${cx.toFixed(1)}" cy="${yS(ot).toFixed(1)}" r="2.5"
+        fill="none" stroke="${color}" stroke-width="1.2">
+        <title>${d.driver} outlier: ${ot.toFixed(3)}s</title></circle>`;
+    });
+
+    // ── Driver info below x-axis ──
+    const baseY = mt + ph;
+
+    // Driver code
+    svg += `<text x="${cx.toFixed(1)}" y="${(baseY + 16).toFixed(1)}"
+      text-anchor="middle" fill="${color}" font-size="11" font-weight="800">${d.driver}</text>`;
+
+    // Mean time
+    svg += `<text x="${cx.toFixed(1)}" y="${(baseY + 29).toFixed(1)}"
+      text-anchor="middle" fill="#9ca3af" font-size="9">${d.mean.toFixed(2)}</text>`;
+
+    // Delta
+    const deltaStr = d.delta === 0 ? '+0.00' : `+${d.delta.toFixed(2)}`;
+    svg += `<text x="${cx.toFixed(1)}" y="${(baseY + 41).toFixed(1)}"
+      text-anchor="middle" fill="${d.delta < 0.05 ? '#22c55e' : '#6b7280'}" font-size="9">${deltaStr}</text>`;
+
+    // Compound pills (as small rects with text)
+    const pillW = 10, pillH = 10, pillGap = 2;
+    const totalPillW = d.compounds_used.length * (pillW + pillGap) - pillGap;
+    let pillX = cx - totalPillW / 2;
+    const pillY = baseY + 48;
+    d.compounds_used.forEach(c => {
+      const pillColor = c === 'SOFT' ? '#e10600' : c === 'MEDIUM' ? '#f59e0b' : '#9ca3af';
+      svg += `<rect x="${pillX.toFixed(1)}" y="${pillY.toFixed(1)}" width="${pillW}" height="${pillH}"
+        rx="2" fill="${pillColor}40" stroke="${pillColor}" stroke-width="0.8"/>`;
+      svg += `<text x="${(pillX + pillW/2).toFixed(1)}" y="${(pillY + 7.5).toFixed(1)}"
+        text-anchor="middle" fill="${pillColor}" font-size="7" font-weight="800">${c[0]}</text>`;
+      pillX += pillW + pillGap;
+    });
+  });
+
+  // ── Legend (top-right) ──
+  const legX = W - mr - 130, legY = 10;
+  svg += `<rect x="${legX - 6}" y="${legY - 8}" width="136" height="34" rx="4"
+    fill="#13131a" stroke="#2a2a38" stroke-width="0.8"/>`;
+  svg += `<line x1="${legX}" y1="${legY + 4}" x2="${legX + 20}" y2="${legY + 4}"
+    stroke="#f1f1f1" stroke-width="2"/>`;
+  svg += `<text x="${legX + 24}" y="${legY + 8}" fill="#9ca3af" font-size="9">Median</text>`;
+  svg += `<line x1="${legX + 72}" y1="${legY + 4}" x2="${legX + 92}" y2="${legY + 4}"
+    stroke="#f1f1f1" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.7"/>`;
+  svg += `<text x="${legX + 96}" y="${legY + 8}" fill="#9ca3af" font-size="9">Mean</text>`;
+  svg += `<circle cx="${legX + 8}" cy="${legY + 20}" r="3" fill="none" stroke="#9ca3af" stroke-width="1.2"/>`;
+  svg += `<text x="${legX + 16}" y="${legY + 24}" fill="#9ca3af" font-size="9">Outlier</text>`;
+
+  svg += `</svg>`;
+  return svg;
+}
+
+// ── Smoothed Lap Trace SVG ───────────────────────────────────────────────────
+
+function buildLapTrace(drivers) {
+  const W = 960, H = 260;
+  const ml = 58, mr = 20, mt = 20, mb = 44;
+  const pw = W - ml - mr;
+  const ph = H - mt - mb;
+
+  const minLap = 1;
+  const maxLap = Math.max(...drivers.flatMap(d => Object.keys(d.lap_times).map(Number)));
+
+  // Y range from all clean laps
+  const allTimes = drivers.flatMap(d => Object.values(d.lap_times).filter(t => t != null));
+  const rawMin = Math.min(...allTimes), rawMax = Math.max(...allTimes);
+  const yPad = (rawMax - rawMin) * 0.06 + 0.1;
+  const yMin = rawMin - yPad, yMax = rawMax + yPad;
+
+  const xS = lap => ml + (lap - minLap) / (maxLap - minLap) * pw;
+  const yS = t   => mt + ph - (t - yMin) / (yMax - yMin) * ph;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"
+    style="font-family:inherit">`;
+
+  // Y gridlines + labels
+  const yStep = 1.0;
+  const yStart = Math.ceil(yMin / yStep) * yStep;
+  for (let t = yStart; t <= yMax + 0.001; t += yStep) {
+    const y = yS(t).toFixed(1);
+    svg += `<line x1="${ml}" y1="${y}" x2="${W - mr}" y2="${y}"
+      stroke="#2a2a38" stroke-width="0.5" stroke-dasharray="3,5"/>`;
+    svg += `<text x="${(ml - 5).toFixed(1)}" y="${(parseFloat(y) + 3.5).toFixed(1)}"
+      text-anchor="end" fill="#6b7280" font-size="9">${t.toFixed(0)}</text>`;
+  }
+
+  // X gridlines + labels every 6 laps
+  for (let lap = minLap; lap <= maxLap; lap++) {
+    if ((lap - 1) % 6 === 0 || lap === maxLap) {
+      const x = xS(lap).toFixed(1);
+      svg += `<line x1="${x}" y1="${mt}" x2="${x}" y2="${mt + ph}"
+        stroke="#2a2a38" stroke-width="0.5" stroke-dasharray="3,5"/>`;
+      svg += `<text x="${x}" y="${(mt + ph + 14).toFixed(1)}"
+        text-anchor="middle" fill="#6b7280" font-size="9">${lap}</text>`;
+    }
+  }
+
+  // Axis lines
+  svg += `<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt + ph}" stroke="#2a2a38" stroke-width="1"/>`;
+  svg += `<line x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}" stroke="#2a2a38" stroke-width="1"/>`;
+
+  // Axis labels
+  const lyMid = (mt + mt + ph) / 2;
+  svg += `<text x="12" y="${lyMid.toFixed(1)}" text-anchor="middle" fill="#6b7280"
+    font-size="9" transform="rotate(-90,12,${lyMid.toFixed(1)})">Lap time (s)</text>`;
+  svg += `<text x="${(ml + pw / 2).toFixed(1)}" y="${H}" text-anchor="middle" fill="#6b7280" font-size="9">Lap</text>`;
+
+  // Track which team we've seen (second driver = dashed)
+  const teamSeen = {};
+
+  drivers.forEach(d => {
+    const color = teamColor(d.team);
+    const dashed = teamSeen[d.team] ? '4,3' : null;
+    teamSeen[d.team] = true;
+
+    const smoothed = smoothedTrace(d.lap_times, minLap, maxLap);
+
+    // Build path segments (break on null)
+    let pathD = '';
+    let inSeg = false;
+    for (let lap = minLap; lap <= maxLap; lap++) {
+      const t = smoothed[lap];
+      if (t != null) {
+        const x = xS(lap).toFixed(1), y = yS(t).toFixed(1);
+        pathD += inSeg ? ` L${x},${y}` : `M${x},${y}`;
+        inSeg = true;
+      } else {
+        inSeg = false;
+      }
+    }
+
+    if (pathD) {
+      const dash = dashed ? `stroke-dasharray="${dashed}"` : '';
+      svg += `<path d="${pathD}" fill="none" stroke="${color}" stroke-width="1.5"
+        ${dash} stroke-linejoin="round" opacity="0.85">
+        <title>${d.driver} (${d.team})</title></path>`;
+    }
+  });
+
+  svg += `</svg>`;
+  return svg;
+}
+
+// ── Legend for lap trace ─────────────────────────────────────────────────────
+
+function buildTraceLegend(drivers) {
+  const teamSeen = {};
+  return drivers.map(d => {
+    const color = teamColor(d.team);
+    const dashed = teamSeen[d.team];
+    teamSeen[d.team] = true;
+    const swatchStyle = dashed
+      ? `background:repeating-linear-gradient(90deg,${color} 0 4px,transparent 4px 7px);height:2px`
+      : `background:${color};height:3px`;
+    return `<div class="legend-item">
+      <div class="legend-swatch" style="${swatchStyle}"></div>
+      <span style="color:${color};font-weight:700">${d.driver}</span>
+      <span style="color:#6b7280;font-size:10px">${d.team}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Strategy table ───────────────────────────────────────────────────────────
+
+function buildStrategyTable(drivers) {
+  const maxDelta = Math.max(...drivers.map(d => d.delta));
+
+  const rows = drivers.map((d, i) => {
+    const color  = teamColor(d.team);
+    const pills  = d.compounds_used.map(compoundPill).join('');
+    const stintStr = d.stints.map(s =>
+      `${s.compound[0]} L${s.start_lap}–${s.end_lap}`
+    ).join(' → ');
+    const barW = maxDelta > 0 ? Math.max(3, (d.delta / maxDelta) * 120) : 3;
+    const barColor = d.delta < 0.3 ? '#22c55e' : d.delta < 0.8 ? '#f59e0b' : '#e10600';
+
+    return `<tr>
+      <td style="width:28px;color:#6b7280;font-size:11px">${i + 1}</td>
+      <td><span class="driver-code" style="color:${color}">${d.driver}</span></td>
+      <td style="color:#9ca3af;font-size:11px">${d.team}</td>
+      <td>${pills}</td>
+      <td style="color:#9ca3af;font-size:11px;font-variant-numeric:tabular-nums">${d.mean.toFixed(3)}s</td>
+      <td>
+        <div class="delta-bar-wrap">
+          <div class="delta-bar" style="width:${barW.toFixed(0)}px;background:${barColor}"></div>
+          <span style="color:${d.delta < 0.05 ? '#22c55e' : '#9ca3af'};font-size:11px;font-variant-numeric:tabular-nums">
+            ${d.delta === 0 ? 'Leader' : '+' + d.delta.toFixed(3) + 's'}
+          </span>
+        </div>
+      </td>
+      <td style="color:#6b7280;font-size:10px">${stintStr}</td>
+    </tr>`;
+  }).join('');
+
+  return `<thead><tr>
+    <th>#</th><th>Driver</th><th>Team</th><th>Tyres</th><th>Mean</th><th>Delta</th><th>Strategy</th>
+  </tr></thead><tbody>${rows}</tbody>`;
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+async function load() {
+  const res  = await fetch('/api/race-pace');
+  const data = await res.json();
+
+  document.getElementById('raceLabel').textContent = data.race.toUpperCase() + ' — RACE PACE';
+  document.getElementById('loadingMsg').style.display = 'none';
+  document.getElementById('content').style.display   = '';
+
+  document.getElementById('boxPlotWrap').innerHTML  = buildBoxPlot(data.drivers);
+  document.getElementById('lapTraceWrap').innerHTML = buildLapTrace(data.drivers);
+  document.getElementById('traceLegend').innerHTML  = buildTraceLegend(data.drivers);
+  document.getElementById('strategyTable').innerHTML = buildStrategyTable(data.drivers);
+}
+
+load();
+</script>
+</body>
+</html>
