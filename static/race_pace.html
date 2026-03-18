@@ -108,7 +108,16 @@
       gap: 6px;
       font-size: 11px;
       color: var(--text-dim);
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 5px;
+      border: 1px solid transparent;
+      transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+      user-select: none;
     }
+    .legend-item:hover { background: rgba(255,255,255,0.04); border-color: var(--border); }
+    .legend-item.active { background: rgba(255,255,255,0.06); border-color: var(--border); }
+    .legend-item.dimmed { opacity: 0.3; }
     .legend-swatch {
       width: 24px;
       height: 3px;
@@ -193,7 +202,7 @@
     <!-- ── Smoothed Lap Trace ── -->
     <div class="section">
       <div class="section-title">Smoothed Lap-by-Lap Race Pace</div>
-      <div class="section-sub">5-lap centred rolling average · Pit laps and flagged laps excluded</div>
+      <div class="section-sub">5-lap centred rolling average · Pit laps and flagged laps excluded · Click driver names to filter</div>
       <div class="chart-wrap" id="lapTraceWrap"></div>
       <div class="legend-grid" id="traceLegend"></div>
     </div>
@@ -509,7 +518,8 @@ function buildLapTrace(drivers) {
     if (pathD) {
       const dash = dashed ? `stroke-dasharray="${dashed}"` : '';
       svg += `<path d="${pathD}" fill="none" stroke="${color}" stroke-width="1.5"
-        ${dash} stroke-linejoin="round" opacity="0.85">
+        ${dash} stroke-linejoin="round" opacity="0.85"
+        class="trace-line" data-driver="${d.driver}">
         <title>${d.driver} (${d.team})</title></path>`;
     }
   });
@@ -529,7 +539,7 @@ function buildTraceLegend(drivers) {
     const swatchStyle = dashed
       ? `background:repeating-linear-gradient(90deg,${color} 0 4px,transparent 4px 7px);height:2px`
       : `background:${color};height:3px`;
-    return `<div class="legend-item">
+    return `<div class="legend-item" data-driver="${d.driver}">
       <div class="legend-swatch" style="${swatchStyle}"></div>
       <span style="color:${color};font-weight:700">${d.driver}</span>
       <span style="color:#6b7280;font-size:10px">${d.team}</span>
@@ -574,6 +584,52 @@ function buildStrategyTable(drivers) {
   </tr></thead><tbody>${rows}</tbody>`;
 }
 
+// ── Legend interactivity ──────────────────────────────────────────────────────
+
+function initLegendInteraction() {
+  const legendItems = document.querySelectorAll('#traceLegend .legend-item');
+  const traceLines  = document.querySelectorAll('#lapTraceWrap .trace-line');
+
+  // active = Set of selected driver codes; empty means "show all"
+  const active = new Set();
+
+  function applyState() {
+    const hasSelection = active.size > 0;
+
+    legendItems.forEach(item => {
+      const driver = item.dataset.driver;
+      item.classList.toggle('active',  hasSelection && active.has(driver));
+      item.classList.toggle('dimmed',  hasSelection && !active.has(driver));
+    });
+
+    traceLines.forEach(path => {
+      const driver = path.dataset.driver;
+      if (!hasSelection) {
+        path.style.opacity     = '0.85';
+        path.style.strokeWidth = '1.5';
+      } else if (active.has(driver)) {
+        path.style.opacity     = '1';
+        path.style.strokeWidth = '2.2';
+      } else {
+        path.style.opacity     = '0.06';
+        path.style.strokeWidth = '1.5';
+      }
+    });
+  }
+
+  legendItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const driver = item.dataset.driver;
+      if (active.has(driver)) {
+        active.delete(driver);
+      } else {
+        active.add(driver);
+      }
+      applyState();
+    });
+  });
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function load() {
@@ -588,6 +644,8 @@ async function load() {
   document.getElementById('lapTraceWrap').innerHTML = buildLapTrace(data.drivers);
   document.getElementById('traceLegend').innerHTML  = buildTraceLegend(data.drivers);
   document.getElementById('strategyTable').innerHTML = buildStrategyTable(data.drivers);
+
+  initLegendInteraction();
 }
 
 load();
