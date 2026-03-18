@@ -444,9 +444,14 @@
     const params  = new URLSearchParams(window.location.search);
     const current = params.get('race') || 'australia';
 
-    sel.innerHTML = data.races.map(r =>
-      `<option value="${r.key}" ${r.key === current ? 'selected' : ''}>R${r.round} · ${r.name}</option>`
-    ).join('');
+    const today    = new Date().toISOString().slice(0, 10);
+    const done     = data.races.filter(r => r.date <= today);
+    const upcoming = data.races.filter(r => r.date >  today);
+    const renderOpt = r =>
+      `<option value="${r.key}" ${r.key === current ? 'selected' : ''}>R${r.round} · ${r.name}</option>`;
+    sel.innerHTML =
+      (done.length     ? `<optgroup label="Completed">${done.map(renderOpt).join('')}</optgroup>`               : '') +
+      (upcoming.length ? `<optgroup label="Upcoming — simulated">${upcoming.map(renderOpt).join('')}</optgroup>` : '');
     sel.disabled = false;
 
     sel.addEventListener('change', () => {
