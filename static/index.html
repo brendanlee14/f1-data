@@ -57,6 +57,29 @@
     .header-race  { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
     .header-meta  { display: flex; flex-direction: column; }
     .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+    /* ── Race selector ── */
+    .race-select-wrap { display: flex; align-items: center; gap: 8px; }
+    .race-select-wrap label { font-size: 11px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.4px; white-space: nowrap; }
+    #raceSelect {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 28px 4px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 9px center;
+      cursor: pointer;
+      min-width: 180px;
+      transition: border-color 0.15s;
+    }
+    #raceSelect:focus { outline: none; border-color: var(--red); }
+
     .badge-count {
       background: var(--red-dim);
       color: var(--red);
@@ -370,7 +393,13 @@
     <span class="header-race" id="raceLabel">Loading…</span>
   </div>
   <div class="header-right">
-    <a href="/race-pace" style="color:var(--text-dim);text-decoration:none;font-size:12px;font-weight:600;letter-spacing:0.4px;border:1px solid var(--border);padding:4px 12px;border-radius:6px;transition:color 0.15s,border-color 0.15s" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text-dim)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Race Pace ↗</a>
+    <div class="race-select-wrap">
+      <label for="raceSelect">ROUND</label>
+      <select id="raceSelect" disabled>
+        <option value="">Loading…</option>
+      </select>
+    </div>
+    <a id="racePaceLink" href="/race-pace" style="color:var(--text-dim);text-decoration:none;font-size:12px;font-weight:600;letter-spacing:0.4px;border:1px solid var(--border);padding:4px 12px;border-radius:6px;transition:color 0.15s,border-color 0.15s" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text-dim)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Race Pace ↗</a>
     <span class="badge-count" id="countBadge">0</span>
   </div>
 </header>
@@ -401,19 +430,54 @@
 </main>
 
 <script>
-  let allInsights = [];
+  let allInsights  = [];
   let activeType   = 'all';
   let activeDriver = '';
   let minRank      = 0;
+  let currentRace  = 'australia';
 
-  // ── Fetch data ─────────────────────────────────────────────────────────────
-  async function loadInsights() {
+  // ── Race selector ──────────────────────────────────────────────────────────
+  async function populateRaceSelector() {
+    const res  = await fetch('/api/races');
+    const data = await res.json();
+    const sel  = document.getElementById('raceSelect');
+    const params  = new URLSearchParams(window.location.search);
+    const current = params.get('race') || 'australia';
+
+    sel.innerHTML = data.races.map(r =>
+      `<option value="${r.key}" ${r.key === current ? 'selected' : ''}>R${r.round} · ${r.name}</option>`
+    ).join('');
+    sel.disabled = false;
+
+    sel.addEventListener('change', () => {
+      history.pushState({race: sel.value}, '', `?race=${sel.value}`);
+      loadInsights(sel.value);
+    });
+
+    window.addEventListener('popstate', (e) => {
+      const key = (e.state && e.state.race) || 'australia';
+      sel.value = key;
+      loadInsights(key);
+    });
+
+    return current;
+  }
+
+  // ── Fetch insights for a race ──────────────────────────────────────────────
+  async function loadInsights(raceKey) {
+    currentRace = raceKey;
+    // Sync Race Pace link
+    document.getElementById('racePaceLink').href = `/race-pace?race=${raceKey}`;
+
     try {
-      const res = await fetch('/insights?limit=500');
+      const res = await fetch(`/insights?race=${raceKey}&limit=500`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       allInsights = data.insights;
       document.getElementById('raceLabel').textContent = data.race;
+      // Reset driver filter and repopulate for this race
+      activeDriver = '';
+      document.getElementById('driverSelect').value = '';
       populateDrivers();
       render();
     } catch (err) {
@@ -427,6 +491,8 @@
   function populateDrivers() {
     const drivers = [...new Set(allInsights.map(i => i.driver))].sort();
     const sel = document.getElementById('driverSelect');
+    // Rebuild options list (keep "All Drivers" at top)
+    sel.innerHTML = '<option value="">All Drivers</option>';
     drivers.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d;
@@ -851,7 +917,11 @@
     }
   }
 
-  loadInsights();
+  async function init() {
+    const raceKey = await populateRaceSelector();
+    loadInsights(raceKey);
+  }
+  init();
 </script>
 </body>
 </html>

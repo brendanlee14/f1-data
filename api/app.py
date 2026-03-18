@@ -61,6 +61,12 @@ _race_pace_cache: Dict[str, Any] = {
     r["key"]: simulate_race_for_round(r["key"]) for r in RACES_2026
 }
 
+# Pre-compute strategy insights for all 2026 rounds
+_insights_cache: Dict[str, List[Dict[str, Any]]] = {
+    r["key"]: _analyser.run(_race_pace_cache[r["key"]], min_rank_score=0.0)
+    for r in RACES_2026
+}
+
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -84,6 +90,7 @@ def get_insights(
     insight_type: Optional[str] = Query(default=None),
     driver: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    race: str = Query(default="australia"),
 ) -> JSONResponse:
     """
     Return all insights, optionally filtered.
@@ -94,14 +101,21 @@ def get_insights(
     insight_type   : one of tyre_degradation | undercut | overcut
     driver         : 3-letter driver code (e.g. VER, NOR)
     limit          : max number of insights to return (default 100)
+    race           : 2026 race key (e.g. australia, monaco). Defaults to australia.
     """
+    if race not in _insights_cache:
+        raise HTTPException(status_code=404, detail=f"Unknown race key: {race!r}")
+
     if insight_type and insight_type not in VALID_INSIGHT_TYPES:
         raise HTTPException(
             status_code=422,
             detail=f"insight_type must be one of {sorted(VALID_INSIGHT_TYPES)}",
         )
 
-    results = _all_insights
+    race_meta = next(r for r in RACES_2026 if r["key"] == race)
+    race_label = f"{race_meta['name']} · {race_meta['circuit']} 2026"
+
+    results = _insights_cache[race]
 
     if min_rank_score > 0.0:
         results = [i for i in results if i["rank_score"] >= min_rank_score]
@@ -114,7 +128,7 @@ def get_insights(
 
     results = results[:limit]
 
-    envelope = _build_envelope(results, RACE_LABEL)
+    envelope = _build_envelope(results, race_label)
     return JSONResponse(content=envelope)
 
 
@@ -238,6 +252,7 @@ def get_insights_by_type(
     min_rank_score: float = Query(default=0.0, ge=0.0, le=1.0),
     driver: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    race: str = Query(default="australia"),
 ) -> JSONResponse:
     """
     Return insights of a specific type.
@@ -245,6 +260,10 @@ def get_insights_by_type(
     Path parameter
     --------------
     insight_type : tyre_degradation | undercut | overcut
+
+    Query parameters
+    ----------------
+    race : 2026 race key. Defaults to australia.
     """
     if insight_type not in VALID_INSIGHT_TYPES:
         raise HTTPException(
@@ -253,7 +272,13 @@ def get_insights_by_type(
                    f"Valid types: {sorted(VALID_INSIGHT_TYPES)}",
         )
 
-    results = [i for i in _all_insights if i["insight_type"] == insight_type]
+    if race not in _insights_cache:
+        raise HTTPException(status_code=404, detail=f"Unknown race key: {race!r}")
+
+    race_meta = next(r for r in RACES_2026 if r["key"] == race)
+    race_label = f"{race_meta['name']} · {race_meta['circuit']} 2026"
+
+    results = [i for i in _insights_cache[race] if i["insight_type"] == insight_type]
 
     if min_rank_score > 0.0:
         results = [i for i in results if i["rank_score"] >= min_rank_score]
@@ -263,5 +288,5 @@ def get_insights_by_type(
 
     results = results[:limit]
 
-    envelope = _build_envelope(results, RACE_LABEL)
+    envelope = _build_envelope(results, race_label)
     return JSONResponse(content=envelope)
