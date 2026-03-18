@@ -169,6 +169,28 @@
     .pill-m { background: rgba(245,158,11,.2); color: #fbbf24; border: 1px solid rgba(245,158,11,.4); }
     .pill-h { background: rgba(200,200,200,.15); color: #d1d5db; border: 1px solid rgba(200,200,200,.3); }
 
+    /* ── Race selector ── */
+    .race-select-wrap { display: flex; align-items: center; gap: 8px; }
+    .race-select-wrap label { font-size: 11px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.4px; white-space: nowrap; }
+    #raceSelect {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 28px 4px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 9px center;
+      cursor: pointer;
+      min-width: 180px;
+      transition: border-color 0.15s;
+    }
+    #raceSelect:focus { outline: none; border-color: var(--red); }
+
     /* ── Loading ── */
     .loading { text-align: center; padding: 60px; color: var(--muted); }
     .loading span { font-size: 13px; }
@@ -183,6 +205,12 @@
     <div class="header-race" id="raceLabel">Loading…</div>
   </div>
   <div class="header-right">
+    <div class="race-select-wrap">
+      <label for="raceSelect">ROUND</label>
+      <select id="raceSelect" disabled>
+        <option value="">Loading…</option>
+      </select>
+    </div>
     <a class="nav-link" href="/">← Insights</a>
   </div>
 </header>
@@ -630,25 +658,68 @@ function initLegendInteraction() {
   });
 }
 
+// ── Race selector ─────────────────────────────────────────────────────────────
+
+async function populateRaceSelector() {
+  const res   = await fetch('/api/races');
+  const data  = await res.json();
+  const sel   = document.getElementById('raceSelect');
+  const params = new URLSearchParams(window.location.search);
+  const current = params.get('race') || 'australia';
+
+  sel.innerHTML = data.races.map(r =>
+    `<option value="${r.key}" ${r.key === current ? 'selected' : ''}>
+      R${r.round} · ${r.name}
+    </option>`
+  ).join('');
+
+  sel.disabled = false;
+
+  sel.addEventListener('change', () => {
+    const key = sel.value;
+    // Update URL without reload so the back button works sensibly
+    history.pushState({race: key}, '', `?race=${key}`);
+    loadRace(key);
+  });
+
+  // Handle browser back/forward
+  window.addEventListener('popstate', (e) => {
+    const key = (e.state && e.state.race) || 'australia';
+    sel.value = key;
+    loadRace(key);
+  });
+
+  return current;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-async function load() {
-  const res  = await fetch('/api/race-pace');
+async function loadRace(raceKey) {
+  document.getElementById('loadingMsg').style.display = '';
+  document.getElementById('content').style.display    = 'none';
+
+  const res  = await fetch(`/api/race-pace?race=${raceKey}`);
   const data = await res.json();
 
-  document.getElementById('raceLabel').textContent = data.race.toUpperCase() + ' — RACE PACE';
+  document.getElementById('raceLabel').textContent =
+    `R${data.round} · ${data.circuit} — RACE PACE`;
   document.getElementById('loadingMsg').style.display = 'none';
   document.getElementById('content').style.display   = '';
 
-  document.getElementById('boxPlotWrap').innerHTML  = buildBoxPlot(data.drivers);
-  document.getElementById('lapTraceWrap').innerHTML = buildLapTrace(data.drivers);
-  document.getElementById('traceLegend').innerHTML  = buildTraceLegend(data.drivers);
+  document.getElementById('boxPlotWrap').innerHTML   = buildBoxPlot(data.drivers);
+  document.getElementById('lapTraceWrap').innerHTML  = buildLapTrace(data.drivers);
+  document.getElementById('traceLegend').innerHTML   = buildTraceLegend(data.drivers);
   document.getElementById('strategyTable').innerHTML = buildStrategyTable(data.drivers);
 
   initLegendInteraction();
 }
 
-load();
+async function init() {
+  const raceKey = await populateRaceSelector();
+  loadRace(raceKey);
+}
+
+init();
 </script>
 </body>
 </html>

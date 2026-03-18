@@ -24,6 +24,7 @@ import os
 from engine.strategy import StrategyAnalyser
 from engine.strategy.fastf1_loader import load_fastf1_race
 from engine.strategy.output import _build_envelope, SCHEMA_VERSION
+from engine.strategy.synthetic_data import RACES_2026, simulate_race_for_round
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -54,6 +55,11 @@ else:
     RACE_LABEL = "Melbourne 2026 (synthetic)"
 
 _all_insights: List[Dict[str, Any]] = _analyser.run(_race_df, min_rank_score=0.0)
+
+# Pre-compute synthetic race DataFrames for all 2026 rounds (used by race-pace view)
+_race_pace_cache: Dict[str, Any] = {
+    r["key"]: simulate_race_for_round(r["key"]) for r in RACES_2026
+}
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +124,20 @@ def race_pace_page() -> FileResponse:
     return FileResponse(str(STATIC_DIR / "race_pace.html"))
 
 
+@app.get("/api/races")
+def get_races() -> JSONResponse:
+    """Return the full 2026 calendar (key, name, circuit, round)."""
+    return JSONResponse(content={"races": RACES_2026})
+
+
 @app.get("/api/race-pace")
-def get_race_pace() -> JSONResponse:
+def get_race_pace(race: str = Query(default="australia")) -> JSONResponse:
     """
     Return aggregated race pace data for all drivers.
+
+    Query parameters
+    ----------------
+    race : 2026 race key (e.g. australia, china, monaco). Defaults to australia.
 
     Per driver: box stats (Q1/median/Q3/whiskers/outliers) from clean laps,
     mean lap time, delta to leader, strategy stints, and per-lap times for
@@ -129,9 +145,15 @@ def get_race_pace() -> JSONResponse:
     """
     import numpy as np
 
+    if race not in _race_pace_cache:
+        raise HTTPException(status_code=404, detail=f"Unknown race key: {race!r}")
+
+    race_meta = next(r for r in RACES_2026 if r["key"] == race)
+    active_df = _race_pace_cache[race]
+
     result_drivers = []
 
-    for driver, driver_df in _race_df.groupby("driver"):
+    for driver, driver_df in active_df.groupby("driver"):
         driver_df = driver_df.sort_values("lap").reset_index(drop=True)
         team = str(driver_df["team"].iloc[0])
 
@@ -201,7 +223,13 @@ def get_race_pace() -> JSONResponse:
         for d in result_drivers:
             d["delta"] = round(d["mean"] - leader_mean, 3)
 
-    return JSONResponse(content={"race": RACE_LABEL, "drivers": result_drivers})
+    return JSONResponse(content={
+        "race":     race_meta["name"],
+        "race_key": race_meta["key"],
+        "circuit":  race_meta["circuit"],
+        "round":    race_meta["round"],
+        "drivers":  result_drivers,
+    })
 
 
 @app.get("/insights/{insight_type}")
